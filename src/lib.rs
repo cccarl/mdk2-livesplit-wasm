@@ -1,4 +1,4 @@
-use asr::{Process, watcher::{Pair, Watcher}, time::Duration};
+use asr::{Process, watcher::{Pair}, time::Duration};
 use spinning_top::{Spinlock, const_spinlock};
 
 const MAIN_MODULE: &str = "mdk2Main.exe";
@@ -8,26 +8,12 @@ const SUBLEVEL_PATH: [u64; 1] = [0xBBA8C];
 const MUSIC_PATH: [u64; 1] = [0xBC364];
 
 
-fn read_memory_int(process: &Process, main_module_addr: asr::Address, pointer_path: &[u64], watcher: &mut Watcher<i32>, var_key: &str) -> Option<Pair<i32>> {
-
-    match process.read_pointer_path64::<i32>(main_module_addr.0, pointer_path) {
-        Ok(mem_value) => {
-            asr::timer::set_variable(var_key, &mem_value.to_string());
-            Some(*watcher.update_infallible(mem_value))
-        },
-        Err(_) => {
-            None
-        }
-    }
-
+fn update_pair_i32(variable_name: &str, new_value: i32, pair: &mut Pair<i32>) {
+    asr::timer::set_variable(variable_name, &format!("{new_value}"));
+    pair.old = pair.current;
+    pair.current = new_value;
 }
 
-struct Watchers {
-    loading: Watcher<i32>,
-    level: Watcher<i32>,
-    sublevel: Watcher<i32>,
-    music: Watcher<i32>,
-}
 
 struct MemoryValues {
     loading: Pair<i32>,
@@ -39,7 +25,6 @@ struct MemoryValues {
 struct State {
     started_up: bool,
     main_process: Option<Process>,
-    watchers: Watchers,
     values: MemoryValues,
 }
 
@@ -58,20 +43,20 @@ impl State {
         let process = self.main_process.as_ref().unwrap();
 
         // insert read int calls here
-        if let Some(values) = read_memory_int(process, main_module_addr, &LOADING_PATH, &mut self.watchers.loading, "Loading") {
-            self.values.loading = values;
+        if let Ok(value) = process.read_pointer_path64::<i32>(main_module_addr.0, &LOADING_PATH) {
+            update_pair_i32("Loading", value, &mut self.values.loading);
         }
 
-        if let Some(values) = read_memory_int(process, main_module_addr, &LEVEL_PATH, &mut self.watchers.level, "Level") {
-            self.values.level = values;
+        if let Ok(value) = process.read_pointer_path64::<i32>(main_module_addr.0, &LEVEL_PATH) {
+            update_pair_i32("Level", value, &mut self.values.level);
         }
 
-        if let Some(values) = read_memory_int(process, main_module_addr, &SUBLEVEL_PATH, &mut self.watchers.sublevel, "Sublevel") {
-            self.values.sublevel = values;
+        if let Ok(value) = process.read_pointer_path64::<i32>(main_module_addr.0, &SUBLEVEL_PATH) {
+            update_pair_i32("Sublevel", value, &mut self.values.sublevel);
         }
 
-        if let Some(values) = read_memory_int(process, main_module_addr, &MUSIC_PATH, &mut self.watchers.music, "Music") {
-            self.values.music = values;
+        if let Ok(value) = process.read_pointer_path64::<i32>(main_module_addr.0, &MUSIC_PATH) {
+            update_pair_i32("Music", value, &mut self.values.music);
         }
 
         Ok("Success")
@@ -134,12 +119,6 @@ impl State {
 static LS_CONTROLLER: Spinlock<State> = const_spinlock(State {
     started_up: false,
     main_process: None,
-    watchers: Watchers {
-        loading: Watcher::new(),
-        level: Watcher::new(),
-        sublevel: Watcher::new(),
-        music: Watcher::new(),
-    },
     values: MemoryValues {
         loading: Pair { current: 0, old: 0 },
         level: Pair { current: 0, old: 0 },
