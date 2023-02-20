@@ -1,4 +1,4 @@
-use asr::{Process, watcher::{Pair}, time::Duration};
+use asr::{Process, watcher::{Pair}};
 use spinning_top::{Spinlock, const_spinlock};
 
 const MAIN_MODULE: &str = "mdk2Main.exe";
@@ -26,6 +26,7 @@ struct State {
     started_up: bool,
     main_process: Option<Process>,
     values: MemoryValues,
+    entered_final_boss: bool,
 }
 
 impl State {
@@ -100,7 +101,7 @@ impl State {
 
         // start condition
         if self.values.level.current == 1 && self.values.sublevel.current == 9 && self.values.loading.current == 1 {
-            asr::timer::set_game_time(Duration::milliseconds(1231));
+            self.entered_final_boss = false;
             asr::timer::start();
         }
 
@@ -110,6 +111,28 @@ impl State {
             asr::timer::pause_game_time();
         } else {
             asr::timer::resume_game_time();
+        }
+
+        // reset
+        if self.values.level.current == 0 && self.values.level.old != 0 {
+            asr::timer::reset();
+        }
+
+        // "entered_final_boss" used by the final split
+        if self.values.music.current == 14 && self.values.music.old != 14 && self.values.level.current >= 10 && self.values.level.current <= 12 {
+           self.entered_final_boss = true;
+        }
+
+        // splits
+        // end of level
+        if self.values.level.current == self.values.level.old + 1 && self.values.level.current != 11 && self.values.level.current != 12 {
+            asr::timer::split();
+        }
+
+        // end of final boss
+        // TODO: rarely breaks, find why and fix
+        if self.values.level.current == -1 && self.values.music.old != -1 && self.entered_final_boss && self.values.loading.current == 0 && self.values.level.current >= 10 && self.values.level.current <= 12 {
+            asr::timer::split();
         }
 
     }
@@ -125,6 +148,7 @@ static LS_CONTROLLER: Spinlock<State> = const_spinlock(State {
         sublevel: Pair { current: 0, old: 0 },
         music: Pair { current: 0, old: 0 },
     },
+    entered_final_boss: false,
 });
 
 
